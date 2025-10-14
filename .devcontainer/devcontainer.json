@@ -1,0 +1,21 @@
+{
+  "name": "Go",
+  "context": "workspaceFolder",
+  "forwardPorts": [
+    8080
+  ],
+  "image": "mcr.microsoft.com/devcontainers/go:1.25",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go"
+      ]
+    }
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "latest"
+    }
+  },
+  "postCreateCommand": "echo \"Please run 'go mod download' to install dependencies\""
+}

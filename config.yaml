@@ -1,0 +1,27 @@
+log:
+  path: ./logs/app.log
+  max_age: 30 # days
+  max_backups: 10
+  max_size: 100 # megabytes
+  request_log: true
+
+redis: redis://default:password@10.0.7.106:6379/1
+
+http:
+  port: 8001
+
+jwt:
+  secret: zpwCI5PXzbE30XPLNzXztHxeIdkQog
+
+# Example Postgres connection string
+# postgresql://app:password@<host>:<port>/<database>
+# sqlite3: sqlite3:/app/data/app.db
+# mysql: mysql://app:password@<host>:<port>/<database>?parseTime=true
+# db: postgres://app:password@127.0.0.1:5432/app?sslmode=disable
+db: sqlite://app.db
+
+app:
+  service_name: app
+  environment: dev
+  host: 0.0.0.0 # Listen on all network interfaces. For local, consider using '127.0.0.1'. Can set via ENV 'APP_HOST'.
+  port: 8080

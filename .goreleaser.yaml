@@ -1,0 +1,76 @@
+# This is an example .goreleaser.yml file with some sensible defaults.
+# Make sure to check the documentation at https://goreleaser.com
+
+# The lines below are called `modelines`. See `:help modeline`
+# Feel free to remove those if you don't want/need to use them.
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# vim: set ts=2 sw=2 tw=0 fo=cnqoj
+
+version: 2
+
+before:
+  hooks:
+    # You may remove this if you don't use go modules.
+    - go mod tidy
+    # you may remove this if you don't need go generate
+    - go generate ./...
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch: [amd64, arm64]
+    ldflags: -X '{{ .ModulePath }}/model/entity.BuildVersion={{ .Version }}' -X '{{ .ModulePath }}/model/entity.BuildTime={{ .Date }}'
+
+archives:
+  - formats: [tar.gz]
+    # this name template makes the OS and Arch compatible with the results of `uname`.
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    # use zip for windows archives
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+release:
+  draft: true 
+
+dockers:
+  - id: app                   # 对应上面 builds 的 id
+    goos: linux
+    goarch: amd64              # 替换为你的 binary 名称（来自 builds.binary）
+    image_templates:
+      - "ghcr.io/{{.Owner}}/{{.ProjectName}}:{{.Tag}}"      # 如 ghcr.io/dingdayu/go-project-template:v1.0.0
+      - "ghcr.io/{{.Owner}}/{{.ProjectName}}:latest"        # 可选：latest 标签
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.name={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+
+# 可选：合并 multi-platform 镜像（比如 amd64 + arm64）
+docker_manifests:
+  - name_template: 'ghcr.io/{{.Owner}}/{{.ProjectName}}:{{.Tag}}'
+    image_templates:
+      - 'ghcr.io/{{.Owner}}/{{.ProjectName}}:{{.Tag}}-amd64'
+      - 'ghcr.io/{{.Owner}}/{{.ProjectName}}:{{.Tag}}-arm64'
+  - name_template: 'ghcr.io/{{.Owner}}/{{.ProjectName}}:latest'
+    image_templates:
+      - 'ghcr.io/{{.Owner}}/{{.ProjectName}}:latest-amd64'
+      - 'ghcr.io/{{.Owner}}/{{.ProjectName}}:latest-arm64'

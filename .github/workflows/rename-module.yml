@@ -1,0 +1,87 @@
+name: Rename Go module (one-time)
+
+on:
+  workflow_dispatch:
+    inputs:
+      module_path:
+        description: "Target module path (default: github.com/<owner>/<repo>)"
+        required: false
+
+jobs:
+  rename:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Compute module paths
+        id: mod
+        run: |
+          if ! grep -q '^module ' go.mod; then
+            echo "no go.mod in repo root"; exit 1
+          fi
+          OLD_MOD="$(grep '^module ' go.mod | awk '{print $2}')"
+          DEFAULT_MOD="github.com/${GITHUB_REPOSITORY}"
+          TARGET="${{ github.event.inputs.module_path }}"
+          if [ -z "$TARGET" ]; then
+            TARGET="$DEFAULT_MOD"
+          fi
+          echo "old=$OLD_MOD" >> $GITHUB_OUTPUT
+          echo "new=$TARGET"   >> $GITHUB_OUTPUT
+          echo "Old: $OLD_MOD"
+          echo "New: $TARGET"
+
+      - name: Rename module & imports
+        run: |
+          set -euo pipefail
+          OLD_MOD='${{ steps.mod.outputs.old }}'
+          NEW_MOD='${{ steps.mod.outputs.new }}'
+          NEW_APP_NAME="$(basename "$NEW_MOD")"
+
+          if [ "$OLD_MOD" = "$NEW_MOD" ]; then
+            echo "No change."; exit 0
+          fi
+
+          go mod edit -module "$NEW_MOD"
+
+          FILES=$(git ls-files | grep -E '\.(go|md|yaml|yml|toml|json|mk)$|(^Makefile$)' || true)
+          if [ -n "$FILES" ]; then
+            if sed --version >/dev/null 2>&1; then
+              sed -i "s#${OLD_MOD}#${NEW_MOD}#g" $FILES
+            else
+              sed -i '' "s#${OLD_MOD}#${NEW_MOD}#g" $FILES
+            fi
+          fi
+
+          echo "NEW_APP_NAME: $NEW_APP_NAME"
+          # Update APP_NAME in Makefile if it exists
+          if grep -q '^APP_NAME\s*=' Makefile 2>/dev/null; then
+            if sed --version >/dev/null 2>&1; then
+              sed -i "s#^APP_NAME\s*=.*#APP_NAME = ${NEW_APP_NAME}#g" Makefile
+            else
+              sed -i '' "s#^APP_NAME\s*=.*#APP_NAME = ${NEW_APP_NAME}#g" Makefile
+            fi
+          fi
+
+          go mod tidy
+
+      - name: Commit changes
+        run: |
+          set -e
+          if git diff --quiet; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: rename module to ${{ steps.mod.outputs.new }}"
+          git push
