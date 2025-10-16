@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/dingdayu/go-project-template/api/controller"
+	"github.com/dingdayu/go-project-template/api/controller/subscribe"
 	"github.com/dingdayu/go-project-template/api/middleware"
 	"github.com/dingdayu/go-project-template/assets"
 
@@ -84,6 +85,8 @@ func Handler() *gin.Engine {
 	// 	openapi.GET("/token", auth.ApiToken)
 	// 	openapi.POST("/project/:project_no/status-report", project.UploadStatusReport)
 	// }
+
+	handle.GET("/subscribe", subscribe.Adapter)
 
 	api := handle.Group("/api")
 	// api.POST("/auth/login", auth.Login)
