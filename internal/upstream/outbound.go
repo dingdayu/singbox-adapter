@@ -7,13 +7,14 @@ import (
 	"resty.dev/v3"
 )
 
-type UpstreamSubscriber[T ProxyOutbound] interface {
+type UpstreamSubscriber interface {
 	Name() string
 	UserAgent() string
-	Profile(ctx context.Context, client *resty.Client) string
-	Outboards() ([]T, error)
+	Profile(ctx context.Context, client *resty.Client, url string) (string, error)
+	Outboards(ctx context.Context, client *resty.Client, url string) ([]ProxyOutbound, error)
 }
 
 type ProxyOutbound interface {
-	ToOutbound() option.Outbound
+	ToOutbound() (option.Outbound, error)
+	Name() string
 }

@@ -38,3 +38,6 @@ dist/
 !assets/dist/
 
 *.log
+GeoLite2-City/
+GeoLite2-City_*.tar.gz
+GeoLite2-City_*.tar.gz.bak

@@ -5,7 +5,10 @@ package cmd
 
 import (
 	"github.com/dingdayu/go-project-template/api"
+	"github.com/dingdayu/go-project-template/internal/proxy"
 	"github.com/dingdayu/go-project-template/model/dao"
+	"github.com/dingdayu/go-project-template/pkg/config"
+	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -27,6 +30,11 @@ var httpCmd = &cobra.Command{
 		if viper.GetString("db") != "" {
 			dao.Setup()
 		}
+		proxy.Setup()
+		// Register config change handler to reload proxy upstreams and tickers
+		config.RegisterChangeEvent(func(e fsnotify.Event) {
+			_ = proxy.Reload()
+		})
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		if httpAsync {

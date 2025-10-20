@@ -3,6 +3,7 @@ package singbox
 import (
 	"net/netip"
 	"strings"
+	"time"
 
 	"github.com/dingdayu/go-project-template/internal/upstream"
 	C "github.com/sagernet/sing-box/constant"
@@ -13,7 +14,7 @@ import (
 var dnsServers = []option.DNSServerOptions{
 	{
 		Type: C.DNSTypeHTTPS,
-		Tag:  "google_doh",
+		Tag:  "google-doh",
 		Options: option.RemoteHTTPSDNSServerOptions{
 			RemoteTLSDNSServerOptions: option.RemoteTLSDNSServerOptions{
 				RemoteDNSServerOptions: option.RemoteDNSServerOptions{
@@ -23,8 +24,14 @@ var dnsServers = []option.DNSServerOptions{
 					},
 					LocalDNSServerOptions: option.LocalDNSServerOptions{
 						DialerOptions: option.DialerOptions{
-							Detour: "direct",
+							Detour: "auto-out",
 						},
+					},
+				},
+
+				OutboundTLSOptionsContainer: option.OutboundTLSOptionsContainer{
+					TLS: &option.OutboundTLSOptions{
+						ServerName: "dns.google",
 					},
 				},
 			},
@@ -33,7 +40,7 @@ var dnsServers = []option.DNSServerOptions{
 	},
 	{
 		Type: C.DNSTypeHTTPS,
-		Tag:  "aliyun_doh",
+		Tag:  "alidns",
 		Options: option.RemoteHTTPSDNSServerOptions{
 			RemoteTLSDNSServerOptions: option.RemoteTLSDNSServerOptions{
 				RemoteDNSServerOptions: option.RemoteDNSServerOptions{
@@ -43,8 +50,13 @@ var dnsServers = []option.DNSServerOptions{
 					},
 					LocalDNSServerOptions: option.LocalDNSServerOptions{
 						DialerOptions: option.DialerOptions{
-							Detour: "direct",
+							Detour: "direct-out",
 						},
+					},
+				},
+				OutboundTLSOptionsContainer: option.OutboundTLSOptionsContainer{
+					TLS: &option.OutboundTLSOptions{
+						ServerName: "dns.alidns.com",
 					},
 				},
 			},
@@ -53,7 +65,7 @@ var dnsServers = []option.DNSServerOptions{
 	},
 	{
 		Type: C.DNSTypeHTTPS,
-		Tag:  "cloudflare_doh",
+		Tag:  "cloudflare-doh",
 		Options: option.RemoteHTTPSDNSServerOptions{
 			RemoteTLSDNSServerOptions: option.RemoteTLSDNSServerOptions{
 				RemoteDNSServerOptions: option.RemoteDNSServerOptions{
@@ -63,8 +75,13 @@ var dnsServers = []option.DNSServerOptions{
 					},
 					LocalDNSServerOptions: option.LocalDNSServerOptions{
 						DialerOptions: option.DialerOptions{
-							Detour: "direct",
+							Detour: "auto-out",
 						},
+					},
+				},
+				OutboundTLSOptionsContainer: option.OutboundTLSOptionsContainer{
+					TLS: &option.OutboundTLSOptions{
+						ServerName: "cloudflare-dns.com",
 					},
 				},
 			},
@@ -78,13 +95,60 @@ var dnsRules = []option.DNSRule{
 		Type: C.RuleTypeDefault,
 		DefaultOptions: option.DefaultDNSRule{
 			RawDefaultDNSRule: option.RawDefaultDNSRule{
-				RuleSet:   []string{"geosite-cn", "geoip-cn"},
-				ClashMode: "direct",
+				DomainSuffix: []string{
+					"onmicrosoft.cn",
+					"s4b4.com",
+					"github.com",
+					"raw.githubusercontent.com",
+				},
 			},
 			DNSRuleAction: option.DNSRuleAction{
 				Action: C.RuleActionTypeRoute,
 				RouteOptions: option.DNSRouteActionOptions{
-					Server: "aliyun_doh",
+					Server: "alidns",
+				},
+			},
+		},
+	},
+
+	{
+		Type: C.RuleTypeDefault,
+		DefaultOptions: option.DefaultDNSRule{
+			RawDefaultDNSRule: option.RawDefaultDNSRule{
+				RuleSet: []string{"adblock"},
+			},
+			DNSRuleAction: option.DNSRuleAction{
+				Action:        C.RuleActionTypeReject,
+				RejectOptions: option.RejectActionOptions{},
+			},
+		},
+	},
+	{
+		Type: C.RuleTypeDefault,
+		DefaultOptions: option.DefaultDNSRule{
+			RawDefaultDNSRule: option.RawDefaultDNSRule{
+				RuleSet:   []string{"geosite-cn", "geoip-cn"},
+				ClashMode: C.RuleActionTypeDirect,
+			},
+			DNSRuleAction: option.DNSRuleAction{
+				Action: C.RuleActionTypeRoute,
+				RouteOptions: option.DNSRouteActionOptions{
+					Server: "alidns",
+				},
+			},
+		},
+	},
+
+	{
+		Type: C.RuleTypeDefault,
+		DefaultOptions: option.DefaultDNSRule{
+			RawDefaultDNSRule: option.RawDefaultDNSRule{
+				RuleSet: []string{"openai", "gemini"},
+			},
+			DNSRuleAction: option.DNSRuleAction{
+				Action: C.RuleActionTypeRoute,
+				RouteOptions: option.DNSRouteActionOptions{
+					Server: "cloudflare-doh",
 				},
 			},
 		},
@@ -99,22 +163,7 @@ var dnsRules = []option.DNSRule{
 			DNSRuleAction: option.DNSRuleAction{
 				Action: C.RuleActionTypeRoute,
 				RouteOptions: option.DNSRouteActionOptions{
-					Server: "cloudflare_doh",
-				},
-			},
-		},
-	},
-
-	{
-		Type: C.RuleTypeDefault,
-		DefaultOptions: option.DefaultDNSRule{
-			RawDefaultDNSRule: option.RawDefaultDNSRule{
-				IPAcceptAny: true,
-			},
-			DNSRuleAction: option.DNSRuleAction{
-				Action: C.RuleActionTypeRoute,
-				RouteOptions: option.DNSRouteActionOptions{
-					Server: "aliyun_doh",
+					Server: "alidns",
 				},
 			},
 		},
@@ -170,7 +219,7 @@ var ruleSet = []option.RuleSet{
 		Format: C.RuleSetFormatBinary,
 		RemoteOptions: option.RemoteRuleSet{
 			URL:            "https://jsd.onmicrosoft.cn/gh/SagerNet/sing-geosite@rule-set/geosite-cn.srs",
-			DownloadDetour: "direct",
+			DownloadDetour: "direct-out",
 		},
 	},
 	{
@@ -179,7 +228,7 @@ var ruleSet = []option.RuleSet{
 		Format: C.RuleSetFormatBinary,
 		RemoteOptions: option.RemoteRuleSet{
 			URL:            "https://jsd.onmicrosoft.cn/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs",
-			DownloadDetour: "direct",
+			DownloadDetour: "direct-out",
 		},
 	},
 	{
@@ -188,7 +237,7 @@ var ruleSet = []option.RuleSet{
 		Format: C.RuleSetFormatBinary,
 		RemoteOptions: option.RemoteRuleSet{
 			URL:            "https://jsd.onmicrosoft.cn/gh/SagerNet/sing-geosite@rule-set/geosite-openai.srs",
-			DownloadDetour: "direct",
+			DownloadDetour: "direct-out",
 		},
 	},
 	{
@@ -197,7 +246,7 @@ var ruleSet = []option.RuleSet{
 		Format: C.RuleSetFormatBinary,
 		RemoteOptions: option.RemoteRuleSet{
 			URL:            "https://jsd.onmicrosoft.cn/gh/SagerNet/sing-geosite@rule-set/geosite-google-gemini.srs",
-			DownloadDetour: "direct",
+			DownloadDetour: "direct-out",
 		},
 	},
 	{
@@ -206,7 +255,7 @@ var ruleSet = []option.RuleSet{
 		Format: C.RuleSetFormatBinary,
 		RemoteOptions: option.RemoteRuleSet{
 			URL:            "https://jsd.onmicrosoft.cn/gh/SagerNet/sing-geosite@rule-set/geosite-adblock.srs",
-			DownloadDetour: "direct",
+			DownloadDetour: "direct-out",
 		},
 	},
 }
@@ -239,7 +288,7 @@ var rules = []option.Rule{
 			RuleAction: option.RuleAction{
 				Action: C.RuleActionTypeRoute,
 				RouteOptions: option.RouteActionOptions{
-					Outbound: C.RuleActionTypeDirect,
+					Outbound: "direct-out",
 				},
 			},
 		},
@@ -253,7 +302,7 @@ var rules = []option.Rule{
 			RuleAction: option.RuleAction{
 				Action: C.RuleActionTypeRoute,
 				RouteOptions: option.RouteActionOptions{
-					Outbound: "auto-proxy",
+					Outbound: "auto-out",
 				},
 			},
 		},
@@ -263,23 +312,30 @@ var rules = []option.Rule{
 func defaultOptionsTags(aiOutbounds []string, testOutbounds []string) []option.Outbound {
 	var ots []option.Outbound
 
+	ots = append(ots, []option.Outbound{
+		{
+			Tag:     "direct-out",
+			Type:    C.TypeDirect,
+			Options: option.DirectOutboundOptions{},
+		},
+	}...)
+
 	if len(aiOutbounds) > 0 {
 		ots = append(ots, option.Outbound{
 			Tag:  "ai-proxy",
-			Type: "select",
+			Type: C.TypeSelector,
 			Options: option.SelectorOutboundOptions{
 				Outbounds: aiOutbounds,
-				Default:   "auto-proxy",
 			},
 		})
 	}
 	if len(testOutbounds) > 0 {
 		ots = append(ots, option.Outbound{
-			Tag:  "auto",
+			Tag:  "auto-out",
 			Type: "urltest",
 			Options: option.URLTestOutboundOptions{
 				URL:       "https://www.google.com/generate_204",
-				Interval:  300,
+				Interval:  badoption.Duration(300 * time.Second),
 				Tolerance: 50,
 				Outbounds: testOutbounds,
 			},
@@ -295,22 +351,23 @@ func OutboundToProfile[T upstream.ProxyOutbound](ots []T) (option.Options, error
 	var testOutboundTags []string
 
 	for _, ot := range ots {
-		tag := ot.ToOutbound().Tag
-		if tag == "" {
+		ot, err := ot.ToOutbound()
+		if err != nil || ot.Tag == "" {
 			continue
 		}
 
-		testOutboundTags = append(testOutboundTags, tag)
-		if strings.Contains(strings.ToLower(tag), "台北") || strings.Contains(strings.ToLower(tag), "jp") || strings.Contains(strings.ToLower(tag), "us") || strings.Contains(strings.ToLower(tag), "sg") || strings.Contains(strings.ToLower(tag), "de") || strings.Contains(strings.ToLower(tag), "tw") || strings.Contains(strings.ToLower(tag), "tr") || strings.Contains(strings.ToLower(tag), "kr") || strings.Contains(strings.ToLower(tag), "gb") {
-			aiOutboundTags = append(aiOutboundTags, tag)
+		testOutboundTags = append(testOutboundTags, ot.Tag)
+		if strings.Contains(strings.ToLower(ot.Tag), "台北") || strings.Contains(strings.ToLower(ot.Tag), "jp") || strings.Contains(strings.ToLower(ot.Tag), "us") || strings.Contains(strings.ToLower(ot.Tag), "sg") || strings.Contains(strings.ToLower(ot.Tag), "de") || strings.Contains(strings.ToLower(ot.Tag), "tw") || strings.Contains(strings.ToLower(ot.Tag), "tr") || strings.Contains(strings.ToLower(ot.Tag), "kr") || strings.Contains(strings.ToLower(ot.Tag), "gb") {
+			aiOutboundTags = append(aiOutboundTags, ot.Tag)
 		}
 	}
 
 	outbounds := defaultOptionsTags(aiOutboundTags, testOutboundTags)
 	for _, ot := range ots {
-		outbounds = append(outbounds, ot.ToOutbound())
+		if to, err := ot.ToOutbound(); err == nil {
+			outbounds = append(outbounds, to)
+		}
 	}
-
 	opts = option.Options{
 		Log: &option.LogOptions{
 			Level:     "info",
@@ -320,6 +377,7 @@ func OutboundToProfile[T upstream.ProxyOutbound](ots []T) (option.Options, error
 			RawDNSOptions: option.RawDNSOptions{
 				Servers: dnsServers,
 				Rules:   dnsRules,
+				Final:   "alidns",
 			},
 		},
 		Inbounds: inbounds,

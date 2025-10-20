@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/sagernet/sing-box/option"
-	"go.yaml.in/yaml/v2"
+	sjson "github.com/sagernet/sing/common/json"
 	"resty.dev/v3"
 )
 
@@ -18,7 +18,7 @@ func (c SingBoxSubscriber) Name() string {
 }
 
 func (c SingBoxSubscriber) UserAgent() string {
-	return "sing-box/v1.12.9"
+	return "SFM/1.12.9 (Build 1; sing-box 1.12.9; language zh_CN)"
 }
 
 func (c SingBoxSubscriber) Profile(ctx context.Context, client *resty.Client, url string) (string, error) {
@@ -29,7 +29,7 @@ func (c SingBoxSubscriber) Profile(ctx context.Context, client *resty.Client, ur
 	return resp.String(), nil
 }
 
-func (c SingBoxSubscriber) Outboards(ctx context.Context, client *resty.Client, url string) ([]SingBoxOutbound, error) {
+func (c SingBoxSubscriber) Outboards(ctx context.Context, client *resty.Client, url string) ([]ProxyOutbound, error) {
 	var in []byte
 
 	if strings.HasPrefix(url, "file://") {
@@ -53,14 +53,22 @@ func (c SingBoxSubscriber) Outboards(ctx context.Context, client *resty.Client, 
 	// ---- For debug purpose ----
 
 	var profile SingBoxProfile
-	if err := yaml.Unmarshal(in, &profile); err != nil {
+	err := sjson.UnmarshalContext(ctx, in, &profile)
+	if err != nil {
 		return nil, fmt.Errorf("unmarshal profile failed: %w", err)
 	}
 
 	if len(profile.Outbounds) == 0 {
 		return nil, fmt.Errorf("no outbounds found in profile")
 	}
-	return profile.Outbounds, nil
+	result := make([]ProxyOutbound, 0, len(profile.Outbounds))
+	for _, p := range profile.Outbounds {
+		if p.Type == "direct" || p.Type == "selector" || p.Type == "dns" || p.Type == "urltest" {
+			continue
+		}
+		result = append(result, p)
+	}
+	return result, nil
 }
 
 type SingBoxProfile struct {
@@ -71,6 +79,26 @@ type SingBoxOutbound struct {
 	option.Outbound
 }
 
-func (p SingBoxOutbound) ToOutbound() option.Outbound {
-	return p.Outbound
+func (p SingBoxOutbound) ToOutbound() (option.Outbound, error) {
+	return p.Outbound, nil
+}
+
+func (p SingBoxOutbound) Name() string {
+	return p.Outbound.Tag
+}
+
+func (p SingBoxOutbound) FilterOutboundsByKeywords(keywords []string) (option.Outbound, error) {
+	if len(keywords) > 0 {
+		found := false
+		for _, kw := range keywords {
+			if strings.Contains(p.Tag, kw) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return option.Outbound{}, fmt.Errorf("proxy %s does not match keywords", p.Tag)
+		}
+	}
+	return p.ToOutbound()
 }

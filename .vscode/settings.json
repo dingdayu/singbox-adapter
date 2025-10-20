@@ -66,4 +66,14 @@
     "git.replaceTagsWhenPull": true,
     "telemetry.telemetryLevel": "off",
     "makefile.configureOnOpen": true,
+    "cSpell.words": [
+        "geoip",
+        "geosite",
+        "obfs",
+        "resty",
+        "sagernet",
+        "Shadowsocks",
+        "VLESS",
+        "Vmess"
+    ],
 }

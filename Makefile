@@ -52,6 +52,10 @@ build-windows:
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
+download-geoip: ## download geoip database
+	curl -O -J -L -L -u $(MM_ACCOUNT_ID):$(MM_LICENSE_KEY) https://download.maxmind.com/geoip/databases/GeoLite2-City/download?suffix=tar.gz && \
+	mkdir -p GeoLite2-City && \
+	tar -zxvf GeoLite2-City_*.tar.gz --strip-components=1 -C GeoLite2-City
 
 tidy: ## go mod tidy
 	$(GO) mod tidy
@@ -63,7 +67,7 @@ lint: ## golangci-lint run
 	golangci-lint run
 
 docker-build: ## docker build image
-	docker build --build-arg GOVERSION=$(GOVERSION) --build-arg APP_NAME=$(APP_NAME) --build-arg GO_HTTP_PORT=$(GO_HTTP_PORT) -t $(APP_NAME):dev .
+	docker build --build-arg GOVERSION=$(GOVERSION) --build-arg APP_NAME=$(APP_NAME) --build-arg GO_HTTP_PORT=$(GO_HTTP_PORT) --build-arg MM_ACCOUNT_ID=$(MM_ACCOUNT_ID) --build-arg MM_LICENSE_KEY=$(MM_LICENSE_KEY) -t $(APP_NAME):dev .
 
 
 # 版本化迁移方案，使用 Atlas + GORM

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/dingdayu/go-project-template/api/controller"
+	"github.com/dingdayu/go-project-template/api/controller/hub"
 	"github.com/dingdayu/go-project-template/api/controller/subscribe"
 	"github.com/dingdayu/go-project-template/api/middleware"
 	"github.com/dingdayu/go-project-template/assets"
@@ -87,6 +88,7 @@ func Handler() *gin.Engine {
 	// }
 
 	handle.GET("/subscribe", subscribe.Adapter)
+	handle.GET("/subscribe/:token", hub.Subscribe)
 
 	api := handle.Group("/api")
 	// api.POST("/auth/login", auth.Login)

@@ -6,16 +6,23 @@ ARG HTTP_PORT=8080
 
 FROM golang:${GOVERSION}-alpine AS build
 WORKDIR /src
+ENV GOPROXY=https://goproxy.cn,https://mirrors.aliyun.com/goproxy/,https://goproxy.io,direct
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o /out/${APP_NAME} .
 
-
 FROM gcr.io/distroless/base-debian12:nonroot
 WORKDIR /app
+
 COPY --from=build /out/${APP_NAME} /app/${APP_NAME}
-ENV GIN_MODE=release PORT=${HTTP_PORT} OTEL_SERVICE_NAME=${APP_NAME}
+# COPY GeoLite2-City /app/GeoLite2-City
+
+# 设置环境变量
+ENV GIN_MODE=release \
+    PORT=${HTTP_PORT} \
+    OTEL_SERVICE_NAME=${APP_NAME}
+
 EXPOSE ${HTTP_PORT}
 USER nonroot:nonroot
 

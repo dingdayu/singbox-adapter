@@ -64,8 +64,8 @@ func Init() {
 		}
 
 		// watch and handle config changes
-		// viper.WatchConfig()
-		// viper.OnConfigChange(onConfigChange)
+		viper.WatchConfig()
+		viper.OnConfigChange(onConfigChange)
 
 		fmt.Printf("\033[1;30;42m[info]\033[0m config init %s\n", viper.ConfigFileUsed())
 	})
