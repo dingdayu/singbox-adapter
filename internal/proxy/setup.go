@@ -201,7 +201,7 @@ func updatePerAndAggregate(url string, items []upstream.ProxyOutbound) {
 
 func AnyContained(s string, subs []string) bool {
 	for _, sub := range subs {
-		if strings.Contains(s, sub) {
+		if strings.Contains(strings.ToLower(s), strings.ToLower(sub)) {
 			return true
 		}
 	}

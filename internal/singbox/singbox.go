@@ -2,9 +2,9 @@ package singbox
 
 import (
 	"net/netip"
-	"strings"
 	"time"
 
+	"github.com/dingdayu/go-project-template/internal/proxy"
 	"github.com/dingdayu/go-project-template/internal/upstream"
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/option"
@@ -91,6 +91,20 @@ var dnsServers = []option.DNSServerOptions{
 }
 
 var dnsRules = []option.DNSRule{
+	// 1) adblock 优先且直接拒绝
+	{
+		Type: C.RuleTypeDefault,
+		DefaultOptions: option.DefaultDNSRule{
+			RawDefaultDNSRule: option.RawDefaultDNSRule{
+				RuleSet: []string{"adblock"},
+			},
+			DNSRuleAction: option.DNSRuleAction{
+				Action:        C.RuleActionTypeReject,
+				RejectOptions: option.RejectActionOptions{},
+			},
+		},
+	},
+	// 保留原有按域名走 alidns 的特例
 	{
 		Type: C.RuleTypeDefault,
 		DefaultOptions: option.DefaultDNSRule{
@@ -110,19 +124,7 @@ var dnsRules = []option.DNSRule{
 			},
 		},
 	},
-
-	{
-		Type: C.RuleTypeDefault,
-		DefaultOptions: option.DefaultDNSRule{
-			RawDefaultDNSRule: option.RawDefaultDNSRule{
-				RuleSet: []string{"adblock"},
-			},
-			DNSRuleAction: option.DNSRuleAction{
-				Action:        C.RuleActionTypeReject,
-				RejectOptions: option.RejectActionOptions{},
-			},
-		},
-	},
+	// 国内直连优先使用 alidns 解析
 	{
 		Type: C.RuleTypeDefault,
 		DefaultOptions: option.DefaultDNSRule{
@@ -138,22 +140,7 @@ var dnsRules = []option.DNSRule{
 			},
 		},
 	},
-
-	{
-		Type: C.RuleTypeDefault,
-		DefaultOptions: option.DefaultDNSRule{
-			RawDefaultDNSRule: option.RawDefaultDNSRule{
-				RuleSet: []string{"openai", "gemini"},
-			},
-			DNSRuleAction: option.DNSRuleAction{
-				Action: C.RuleActionTypeRoute,
-				RouteOptions: option.DNSRouteActionOptions{
-					Server: "cloudflare-doh",
-				},
-			},
-		},
-	},
-
+	// 全局兜底
 	{
 		Type: C.RuleTypeDefault,
 		DefaultOptions: option.DefaultDNSRule{
@@ -233,24 +220,6 @@ var ruleSet = []option.RuleSet{
 	},
 	{
 		Type:   C.RuleSetTypeRemote,
-		Tag:    "openai",
-		Format: C.RuleSetFormatBinary,
-		RemoteOptions: option.RemoteRuleSet{
-			URL:            "https://jsd.onmicrosoft.cn/gh/SagerNet/sing-geosite@rule-set/geosite-openai.srs",
-			DownloadDetour: "direct-out",
-		},
-	},
-	{
-		Type:   C.RuleSetTypeRemote,
-		Tag:    "gemini",
-		Format: C.RuleSetFormatBinary,
-		RemoteOptions: option.RemoteRuleSet{
-			URL:            "https://jsd.onmicrosoft.cn/gh/SagerNet/sing-geosite@rule-set/geosite-google-gemini.srs",
-			DownloadDetour: "direct-out",
-		},
-	},
-	{
-		Type:   C.RuleSetTypeRemote,
 		Tag:    "adblock",
 		Format: C.RuleSetFormatBinary,
 		RemoteOptions: option.RemoteRuleSet{
@@ -261,22 +230,20 @@ var ruleSet = []option.RuleSet{
 }
 
 var rules = []option.Rule{
+	// 2) adblock 路由层直接拒绝，优先级最高
 	{
 		Type: C.RuleTypeDefault,
 		DefaultOptions: option.DefaultRule{
 			RawDefaultRule: option.RawDefaultRule{
-				DomainSuffix: []string{"openai.com", "oaistatic.com", "oaiusercontent.com"},
-				RuleSet:      []string{"openai", "gemini"},
-				PackageName:  []string{"com.openai.chatgpt", "com.google.android.apps.bard", "com.google.bard"},
+				RuleSet: []string{"adblock"},
 			},
 			RuleAction: option.RuleAction{
-				Action: C.RuleActionTypeRoute,
-				RouteOptions: option.RouteActionOptions{
-					Outbound: "ai-proxy",
-				},
+				Action:        C.RuleActionTypeReject,
+				RejectOptions: option.RejectActionOptions{},
 			},
 		},
 	},
+	// 内网直连 + 国内直连
 	{
 		Type: C.RuleTypeDefault,
 		DefaultOptions: option.DefaultRule{
@@ -293,6 +260,7 @@ var rules = []option.Rule{
 			},
 		},
 	},
+	// 全局兜底 -> auto-out
 	{
 		Type: C.RuleTypeDefault,
 		DefaultOptions: option.DefaultRule{
@@ -309,10 +277,10 @@ var rules = []option.Rule{
 	},
 }
 
-func defaultOptionsTags(aiOutbounds []string, testOutbounds []string) []option.Outbound {
-	var ots []option.Outbound
+func defaultOptionsTags[T upstream.ProxyOutbound](ots []T) []option.Outbound {
+	var otd []option.Outbound
 
-	ots = append(ots, []option.Outbound{
+	otd = append(otd, []option.Outbound{
 		{
 			Tag:     "direct-out",
 			Type:    C.TypeDirect,
@@ -320,54 +288,132 @@ func defaultOptionsTags(aiOutbounds []string, testOutbounds []string) []option.O
 		},
 	}...)
 
-	if len(aiOutbounds) > 0 {
-		ots = append(ots, option.Outbound{
-			Tag:  "ai-proxy",
-			Type: C.TypeSelector,
-			Options: option.SelectorOutboundOptions{
-				Outbounds: aiOutbounds,
-			},
-		})
+	selectors, _ := GetSelectors()
+	for _, sel := range selectors {
+		switch sel.Name {
+		case "auto-proxy":
+			autoOutbounds := []string{}
+			seen := make(map[string]bool)
+			for _, ot := range ots {
+				to, err := ot.ToOutbound()
+				if err != nil || to.Tag == "" {
+					continue
+				}
+				if len(sel.Keywords) == 0 || proxy.AnyContained(ot.Name(), sel.Keywords) {
+					if !seen[to.Tag] {
+						autoOutbounds = append(autoOutbounds, to.Tag)
+						seen[to.Tag] = true
+					}
+				}
+			}
+			otd = append(otd, option.Outbound{
+				Tag:  "auto-out",
+				Type: "urltest",
+				Options: option.URLTestOutboundOptions{
+					URL:       "https://www.google.com/generate_204",
+					Interval:  badoption.Duration(300 * time.Second),
+					Tolerance: 50,
+					Outbounds: autoOutbounds,
+				},
+			})
+		case "ai-proxy":
+			if len(sel.Keywords) == 0 {
+				continue
+			}
+			var aiOutbounds []string
+			for _, ot := range ots {
+				if proxy.AnyContained(ot.Name(), sel.Keywords) {
+					if to, err := ot.ToOutbound(); err == nil {
+						aiOutbounds = append(aiOutbounds, to.Tag)
+					}
+				}
+			}
+			if len(aiOutbounds) > 0 {
+				otd = append(otd, option.Outbound{
+					Tag:  "ai-proxy",
+					Type: C.TypeSelector,
+					Options: option.SelectorOutboundOptions{
+						Outbounds: aiOutbounds,
+					},
+				})
+			}
+		}
 	}
-	if len(testOutbounds) > 0 {
-		ots = append(ots, option.Outbound{
-			Tag:  "auto-out",
-			Type: "urltest",
-			Options: option.URLTestOutboundOptions{
-				URL:       "https://www.google.com/generate_204",
-				Interval:  badoption.Duration(300 * time.Second),
-				Tolerance: 50,
-				Outbounds: testOutbounds,
-			},
-		})
-	}
-	return ots
+
+	return otd
 }
 
 func OutboundToProfile[T upstream.ProxyOutbound](ots []T) (option.Options, error) {
 	var opts option.Options
 
-	var aiOutboundTags []string
-	var testOutboundTags []string
-
-	for _, ot := range ots {
-		ot, err := ot.ToOutbound()
-		if err != nil || ot.Tag == "" {
-			continue
-		}
-
-		testOutboundTags = append(testOutboundTags, ot.Tag)
-		if strings.Contains(strings.ToLower(ot.Tag), "台北") || strings.Contains(strings.ToLower(ot.Tag), "jp") || strings.Contains(strings.ToLower(ot.Tag), "us") || strings.Contains(strings.ToLower(ot.Tag), "sg") || strings.Contains(strings.ToLower(ot.Tag), "de") || strings.Contains(strings.ToLower(ot.Tag), "tw") || strings.Contains(strings.ToLower(ot.Tag), "tr") || strings.Contains(strings.ToLower(ot.Tag), "kr") || strings.Contains(strings.ToLower(ot.Tag), "gb") {
-			aiOutboundTags = append(aiOutboundTags, ot.Tag)
-		}
-	}
-
-	outbounds := defaultOptionsTags(aiOutboundTags, testOutboundTags)
+	outbounds := defaultOptionsTags(ots)
 	for _, ot := range ots {
 		if to, err := ot.ToOutbound(); err == nil {
 			outbounds = append(outbounds, to)
 		}
 	}
+
+	cRule := rules
+	cRuleSet := ruleSet
+	cDNSRules := dnsRules
+	// 3) 仅当存在 ai-proxy 出站时，才追加 AI 相关路由与规则集
+	if hasAIProxySelector(outbounds) {
+		cRule = append(cRule, option.Rule{
+			Type: C.RuleTypeDefault,
+			DefaultOptions: option.DefaultRule{
+				RawDefaultRule: option.RawDefaultRule{
+					DomainSuffix: []string{"openai.com", "oaistatic.com", "oaiusercontent.com"},
+					RuleSet:      []string{"openai", "gemini"},
+					PackageName:  []string{"com.openai.chatgpt", "com.google.android.apps.bard", "com.google.bard"},
+				},
+				RuleAction: option.RuleAction{
+					Action: C.RuleActionTypeRoute,
+					RouteOptions: option.RouteActionOptions{
+						Outbound: "ai-proxy",
+					},
+				},
+			},
+		})
+		cRuleSet = append(cRuleSet, []option.RuleSet{
+			{
+				Type:   C.RuleSetTypeRemote,
+				Tag:    "openai",
+				Format: C.RuleSetFormatBinary,
+				RemoteOptions: option.RemoteRuleSet{
+					URL:            "https://jsd.onmicrosoft.cn/gh/SagerNet/sing-geosite@rule-set/geosite-openai.srs",
+					DownloadDetour: "direct-out",
+				},
+			},
+			{
+				Type:   C.RuleSetTypeRemote,
+				Tag:    "gemini",
+				Format: C.RuleSetFormatBinary,
+				RemoteOptions: option.RemoteRuleSet{
+					URL:            "https://jsd.onmicrosoft.cn/gh/SagerNet/sing-geosite@rule-set/geosite-google-gemini.srs",
+					DownloadDetour: "direct-out",
+				},
+			},
+		}...)
+
+		cDNSRules = append(cDNSRules, []option.DNSRule{
+			// AI 站点优先走 cloudflare-doh
+			{
+				Type: C.RuleTypeDefault,
+				DefaultOptions: option.DefaultDNSRule{
+					RawDefaultDNSRule: option.RawDefaultDNSRule{
+						RuleSet: []string{"openai", "gemini"},
+					},
+					DNSRuleAction: option.DNSRuleAction{
+						Action: C.RuleActionTypeRoute,
+						RouteOptions: option.DNSRouteActionOptions{
+							Server: "cloudflare-doh",
+						},
+					},
+				},
+			},
+		}...)
+	}
+
 	opts = option.Options{
 		Log: &option.LogOptions{
 			Level:     "info",
@@ -376,18 +422,29 @@ func OutboundToProfile[T upstream.ProxyOutbound](ots []T) (option.Options, error
 		DNS: &option.DNSOptions{
 			RawDNSOptions: option.RawDNSOptions{
 				Servers: dnsServers,
-				Rules:   dnsRules,
+				Rules:   cDNSRules,
 				Final:   "alidns",
 			},
 		},
 		Inbounds: inbounds,
 		Route: &option.RouteOptions{
 			AutoDetectInterface: true,
-			RuleSet:             ruleSet,
-			Rules:               rules,
+			// 4) 使用 cRuleSet（包含动态追加的规则集）
+			RuleSet: cRuleSet,
+			Rules:   cRule,
 		},
 		Outbounds: outbounds,
 	}
 
 	return opts, nil
+}
+
+// hasAIProxySelector checks if the outbounds contain an outbound with tag "ai-proxy"
+func hasAIProxySelector(ots []option.Outbound) bool {
+	for _, ot := range ots {
+		if ot.Tag == "ai-proxy" {
+			return true
+		}
+	}
+	return false
 }
